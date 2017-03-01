@@ -105,7 +105,7 @@ function parseit.parse(raw)
 
 
     local function parse_lvalue()
-        local good, ast, newast, save
+        local good, ast, newast--, save
         good = true
          ast = {VARID_VAL, str}
             advanceLexer()
@@ -129,6 +129,10 @@ function parseit.parse(raw)
         
         local good, ast, newast
 
+        --conditions are all ors so I think I 
+        --can consolidate (elseif) with one return at 
+        --bottom
+
         if str == "+" or str == "-" then
             ast = {{UN_OP, str}}
             advanceLexer()
@@ -140,7 +144,7 @@ function parseit.parse(raw)
 
         if str == "(" then
             good, ast = parse_expr()
-            if str == ")" then
+            if str == ")" then  --do this opposite in lvalue, should normalize
                 return good, ast
             else
                 return false, nil
@@ -159,13 +163,12 @@ function parseit.parse(raw)
             return true, ast
         end
 
-        if cat == lexit.VARID then  --should make an parse_lvalue but this works for now
+        if cat == lexit.VARID then  
             good, ast = parse_lvalue()
            
             return good, ast
         end
 
-        return false, nil --until i write code
 
     end
 
@@ -235,7 +238,7 @@ function parseit.parse(raw)
         local good, ast, newast --i swapped name halfway through...I need to normalize
 
         if str == "!" then
-            ast = {str}
+            ast = {UN_OP, str}
             advanceLexer()
 
             good, newast = parse_comp_expr()
