@@ -1,5 +1,14 @@
 --[[
 
+-- lexit.lua
+-- Sam Erie
+-- CSCE331
+-- Chappell
+-- lexer for assignment 3
+-- first module of Kanchil interpreter
+-- passes all lexit_test.lua tests
+-- 2/18/17
+
 parse grammar
 
     (1)     	program 	  →   	stmt_list
@@ -67,6 +76,12 @@ local cat
 
 
 local function advanceLexer()
+
+    if str == "]" or str == ")" or str == "true" or str == "false"
+        or cat == lexit.VARID or cat == lexit.NUMLIT then
+        lexit.preferOp()
+    end
+
 	retStr, retCat = iter(state, retStr)
 
 	if retStr ~= nil then
@@ -100,32 +115,44 @@ end
 
 function parseit.parse(raw)
 
-    --parse functions - can't be local if below - figure out later
+
+	initLexer(raw)
+
+	local good, ast = parse_stmt_list()
+	local done = (cat == 0)	--atend
+
+	return good, done, ast
+
+end
 
 
+ --parse functions--
 
-    local function parse_lvalue()
-        local good, ast, newast--, save
+
+    function parse_lvalue()
+        local good, ast, newast
+
         good = true
          ast = {VARID_VAL, str}
             advanceLexer()
 
             if str == "[" then
+
                 advanceLexer()
+
                 good, newast = parse_expr()
-                if str ~= "]" then
+                if str ~= "]" or not good then
                     return false, nil
                 end
                 advanceLexer()
-                ast[1] = ast
-                ast[2] = {ARRAY_REF, newast}
+                ast = {ARRAY_REF, ast, newast}
             end
 
             return good, ast
         
     end
 
-    local function parse_factor()
+    function parse_factor()
         
         local good, ast, newast
 
@@ -134,17 +161,29 @@ function parseit.parse(raw)
         --bottom
 
         if str == "+" or str == "-" then
-            ast = {{UN_OP, str}}
+            ast = {UN_OP, str}
             advanceLexer()
 
             good, newast = parse_factor()
-            ast[2]=newast
+            ast= {ast, newast}
+            if not good then 
+                return false, nil
+            end
+
             return good, ast
         end
 
         if str == "(" then
+
+            advanceLexer()
+
             good, ast = parse_expr()
+            if not good then
+                return false, nil
+            end
+
             if str == ")" then  --do this opposite in lvalue, should normalize
+                advanceLexer()
                 return good, ast
             else
                 return false, nil
@@ -165,14 +204,19 @@ function parseit.parse(raw)
 
         if cat == lexit.VARID then  
             good, ast = parse_lvalue()
+            if not good then
+                return false, nil
+            end
+
            
             return good, ast
         end
 
-
+        --if it gets here its not a factor
+        return false, nil
     end
 
-    local function parse_term()
+    function parse_term()
 
         local good, ast, newast, save
 
@@ -191,17 +235,14 @@ function parseit.parse(raw)
                     return false, nil
                 end
 
-                newast[2] = save
-                newast[1], newast[2] = newast[2], newast[1]
-
-            ast[#ast+1] = newast
+            ast = {{BIN_OP, save}, ast, newast}
         end 
 
         return good, ast
 
     end
 
-    local function parse_arith_expr()
+    function parse_arith_expr()
 
         local good, ast, newast, save
 
@@ -211,7 +252,7 @@ function parseit.parse(raw)
         end
 
          while str == "+" or str == "-" do
-            
+             
                 save = str
                 advanceLexer()
 
@@ -220,10 +261,7 @@ function parseit.parse(raw)
                     return false, nil
                 end
 
-                newast[2] = save
-                newast[1], newast[2] = newast[2], newast[1]
-
-            ast[#ast+1] = newast
+                ast = {{BIN_OP, save}, ast, newast}
         end 
 
         return good, ast
@@ -233,9 +271,9 @@ function parseit.parse(raw)
 
 
 
-    local function parse_comp_expr()
+    function parse_comp_expr()
 
-        local good, ast, newast --i swapped name halfway through...I need to normalize
+        local good, ast, newast, save 
 
         if str == "!" then
             ast = {UN_OP, str}
@@ -246,7 +284,7 @@ function parseit.parse(raw)
                 return false, nil
             end
 
-            ast[#ast+1] = newast
+            ast = {ast, newast}
             return good, ast
 
         end
@@ -257,7 +295,7 @@ function parseit.parse(raw)
         end
 
          while isCompareOp(str) do
-            
+           
                 save = str
                 advanceLexer()
 
@@ -265,12 +303,8 @@ function parseit.parse(raw)
                 if not good then 
                     return false, nil
                 end
-
-                --the "&&" | "||" needs to go first, maybe make pushfront func to make the swap more clear
-                newast[2] = save
-                newast[1], newast[2] = newast[2], newast[1]
-
-            ast[#ast+1] = newast
+    
+                ast = {{BIN_OP, save}, ast, newast}
         end 
 
             return good, ast
@@ -286,7 +320,7 @@ function parseit.parse(raw)
         end
 
         while str == "&&" or str == "||" do
-
+ 
                 save = str
                 advanceLexer()
 
@@ -294,12 +328,8 @@ function parseit.parse(raw)
                 if not good then 
                     return false, nil
                 end
-
-                --the "&&" | "||" needs to go first, maybe make pushfront func to make the swap more clear
-                newast[2] = save
-                newast[1], newast[2] = newast[2], newast[1]
-
-            ast[#ast+1] = newast
+        
+                ast = {{BIN_OP, save}, ast, newast}
         end 
 
 
@@ -307,9 +337,9 @@ function parseit.parse(raw)
     end
 
 
-    local function parse_statement()
+    function parse_statement()
         
-        local good, ast, save
+        local good, ast, newast, thirdast, save
 
         if cat == lexit.KEY then
 
@@ -328,37 +358,202 @@ function parseit.parse(raw)
                 end
 
                 good, ast = parse_expr()
-                return good, {PRINT_STMT, ast}
-            end
+                if not good then
+                    return false, nil
+                end
 
-            --until further develop
-          --  advanceLexer()
-            return true, nil
+                return good, {PRINT_STMT, ast}  
+            elseif str == "input" then  
+
+                advanceLexer()
+
+                if cat == lexit.VARID then
+
+                    good, ast = parse_lvalue()
+                    if not good then 
+                        return false, nil
+                    end
+
+                    return good, {INPUT_STMT, ast}
+                else 
+                    --input with no variable
+                    return false, nil
+                end
+            elseif str == "set" then
+
+                advanceLexer()
+
+                if cat == lexit.VARID then
+
+                    good, ast = parse_lvalue()
+                    if not good then
+                        return false, nil
+                    end
+
+                    if str == ":" then
+
+                        advanceLexer()
+
+                        good, newast = parse_expr()
+                        if not good then 
+                            return false, nil
+                        end
+
+                        return good, {SET_STMT, ast, newast}
+                    else
+                        --set with no : (assignment op)
+                        return false, nil
+                    end
+                 else
+                    --set with no LHS
+                    return false, nil      
+                end
+            elseif str == "sub" then
+
+                advanceLexer()
+
+                if cat == lexit.SUBID then
+
+                    save = str
+                    advanceLexer()
+
+                    good, ast = parse_stmt_list()    
+                    if not good then
+                        return false, nil
+                    end
+ 
+                    if str ~= "end" then
+                        return false, nil
+                    end
+
+                    advanceLexer()
+
+                    ast = {SUB_STMT, save, ast}
+
+                    return good, ast
+
+                else
+                    return false, nil
+                end
+                elseif str == "call" then
+
+                    advanceLexer()
+
+                    if cat == lexit.SUBID then
+
+                        ast = {CALL_STMT, str}
+                        advanceLexer()
+                        return true, ast
+                    else
+                        return false, nil
+                    end
+                elseif str == "if" then
+
+                    advanceLexer()
+
+                    good, ast = parse_expr()
+                    if not good then
+                        return false, nil
+                    end
+
+                    good, newast = parse_stmt_list()
+                    if not good then 
+                        return false, nil
+                    end
+
+                    ast = {IF_STMT, ast, newast}
+
+
+                    while str == "elseif" do
+       
+                        advanceLexer()
+
+                        good, newast = parse_expr()
+                        if not good then
+                            return false, nil
+                        end
+
+                        good, thirdast = parse_stmt_list()
+                        if not good then
+                            return false, nil
+                        end
+
+                        ast[#ast+1] = newast
+                        ast[#ast+1] = thirdast
+                    end 
+
+                    if str == "else" then
+                        advanceLexer()
+                        good, newast = parse_stmt_list()
+                        if not good then
+                            return false, nil
+                        end
+
+                        ast[#ast+1] = newast
+                    end
+
+                    if str ~= "end" then
+                        return false, nil
+                    end
+
+                    advanceLexer()
+
+                    return good, ast
+                elseif str == "while" then
+
+                    advanceLexer()
+
+                    good, ast = parse_expr()
+                    if not good then
+                        return false, nil
+                    end
+
+                    good, newast = parse_stmt_list()
+                    if not good then 
+                        return false, nil
+                    end
+
+                    ast = {WHILE_STMT, ast, newast}
+
+                    if str ~= "end" then
+                        return false, nil
+                    end
+
+                    advanceLexer()
+
+                    return good, ast
+
+            end
+                --this is if it makes it past all ifs
+                --and hasn't returned...hence keyword that isnt a statement
+                return true, nil
 
         else
+            --this is if it's not a keyword...still can be good syntax 
             return true, nil
         end
     end
 
-    local function parse_stmt_list()
+
+    function parse_stmt_list()
         
-        local good, ast, nextast
+        local good, ast, newast
 
         good = true
         ast = {STMT_LIST}
         
-        while cat ~= 0 do
+        while cat ~= 0 and str ~= "end" and str ~= "elseif" and str ~= "else" do
 
-            good, nextast = parse_statement()
+            good, newast = parse_statement()
             
             if not good then
                 return false, nil 
-            elseif nextast == nil then  --good syntax but bad program?
+            elseif newast == nil then  --good syntax but bad program
                 return true, nil        --idk needed to get past first tests like input "end"
             end
 
             --appends new element onto ast table (array)
-            ast[#ast+1] = nextast
+            ast[#ast+1] = newast
 
         end
         
@@ -366,22 +561,6 @@ function parseit.parse(raw)
         return good, ast
 
     end
-
-    
-
-
-	initLexer(raw)
-
-	local good, ast = parse_stmt_list()
-	local done = (cat == 0)	--atend
-
-	return good, done, ast
-
-   
-
-end
-
-
 
 
 
