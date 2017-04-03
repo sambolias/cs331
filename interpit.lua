@@ -88,8 +88,6 @@ local function boolToInt(b)
     end
 end
 
-
-
 -- ***** Primary Function for Client Code *****
 
 
@@ -115,7 +113,9 @@ function interpit.interp(ast, state, incall, outcall)
 
     local interp_stmt_list
     local interp_stmt
-    local eval
+    local evalIntExpr
+    local evalBoolExpr
+    local getLvalue
 
     function interp_stmt_list(ast)  -- Already declared local
         for i = 2, #ast do
@@ -123,7 +123,84 @@ function interpit.interp(ast, state, incall, outcall)
         end
     end
 
-    function eval(ast)
+    function getLvalue(ast)
+        local value
+
+        if ast[1] == NUMLIT_VAL then 
+            value = strToNum(ast[2])
+        elseif ast[1] == VARID_VAL then
+            value = state.v[ast[2]]
+        elseif ast[1] == ARRAY_REF then
+            value = state.a[ast[2]][evalIntExpr(ast[3])]
+        end
+
+        return value
+    end
+
+    function evalIntExpr(ast)
+     
+
+        local value=nil
+
+        local i = 1
+        --count up through binary operators
+        if #ast > 2 then    --needs to be at least 3 to have binary operation
+            while ast[i][1] == BIN_OP do
+             i=i+1
+            end
+        end
+
+        i=i-1   --this is kind of confusing
+
+        if ast[1]==NUMLIT_VAL or ast[1] == VARID_VAL or ast[1] == ARRAY_REF then --num_lit, var_val, or array_ref
+            value = getLvalue(ast)
+        else
+
+            --j counts up lvalues as i counts down bin_ops
+            for j = i+1, #ast do
+               
+                local tempValue
+            
+                if ast[j][1] == UN_OP then
+
+                    local  sign = 1
+                        
+                    if ast[j][2] == "-" then
+                        sign = sign*-1
+                    end
+
+                    j=j+1   --increment lvalue counter to get lvalue for un_op
+
+                    tempValue = sign * getLvalue(ast[j])
+                else 
+                    tempValue = getLvalue(ast[j])
+                end
+
+                if value == nil then
+                    value = tempValue
+                elseif i > 0 then 
+                    if ast[i][2] == '*' then
+                        value = value * tempValue
+                    elseif ast[i][2] == '/' then
+                        value = value / tempValue
+                    elseif ast[i][2] == '%' then
+                        value = value % tempValue    
+                    elseif ast[i][2] == '+' then 
+                        value = value + tempValue  
+                    elseif ast[i][2] == '-' then
+                        value = value - tempValue    
+                    end
+                    i=i-1   --decrement bin_op counter
+                end
+
+            end
+        end
+
+
+        return value
+    end
+
+    function evalBoolExpr(ast)
         
     end
 
@@ -137,13 +214,13 @@ function interpit.interp(ast, state, incall, outcall)
                 str = ast[2][2]
                 outcall(str:sub(2,str:len()-1))
             else
-                print("Print stmt with expression; DUNNO WHAT TO DO!!!")
+                outcall(numToStr(evalIntExpr(ast[2])))
             end
         elseif ast[1] == INPUT_STMT then
             if ast[2][1] == VARID_VAL then
                 name = ast[2][2]
                 body = incall()
-                state.v[name] = body
+                state.v[name] = strToNum(body)  --variables must hold integer
             elseif ast[2][1] == ARRAY_REF then
                 print("No support for arrays yet")
             else
@@ -152,10 +229,15 @@ function interpit.interp(ast, state, incall, outcall)
         elseif ast[1] == SET_STMT then
             if ast[2][1] == VARID_VAL then
                 name = ast[2][2]
-                body = ast[3][2]
-                state.v[name] = body
-            else
-                print("No support for arrays yet")
+                body = ast[3]
+                state.v[name] = evalIntExpr(body)
+            elseif ast[2][1] == ARRAY_REF then
+                name = ast[2][2][2]
+                body = ast[3]
+                 print ( numToStr( evalIntExpr(ast[3])))
+                 print ( numToStr( evalIntExpr(ast[2][3])))
+                 print (ast[2][2][2])
+                state.a[name][evalIntExpr(ast[2][3])] = evalIntExpr(body) --this doesn't work...need to add as key/value pair??
             end
         elseif ast[1] == SUB_STMT then
             name = ast[2]
