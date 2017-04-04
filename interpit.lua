@@ -154,23 +154,24 @@ function interpit.interp(ast, state, incall, outcall)
             return true
         end
 
-        if ast[1][1] == UN_OP then
-            if ast[1][2] == "+" or
-                ast[1][2] == "-" then
-                return true
+        if type(ast[1])=="table" then
+            if ast[1][1] == UN_OP then
+                if ast[1][2] == "+" or
+                    ast[1][2] == "-" then
+                    return true
+                end
+            end
+
+            if ast[1][1] == BIN_OP then
+                if ast[1][2] == "+" or
+                    ast[1][2] == "-" or
+                    ast[1][2] == "*" or
+                    ast[1][2] == "/" or
+                    ast[1][2] == "%" then
+                    return true
+                end
             end
         end
-
-        if ast[1][1] == BIN_OP then
-            if ast[1][2] == "+" or
-                ast[1][2] == "-" or
-                ast[1][2] == "*" or
-                ast[1][2] == "/" or
-                ast[1][2] == "%" then
-                return true
-            end
-        end
-
         return false
 
     end
@@ -248,6 +249,12 @@ function interpit.interp(ast, state, incall, outcall)
                 boolValue = false
             else
                 boolValue = true
+            end
+        elseif isLvalue(ast) then
+            if evalIntExpr(ast) == 0 then
+                return false
+            else
+                return true
             end
         else --conditional expression
             --count up through binary operators
@@ -346,13 +353,18 @@ function interpit.interp(ast, state, incall, outcall)
                 end
                 state.a[name][evalIntExpr(ast[2][3])] = strToNum(body)
             else
-                print("input into what?")
+                print("Input Statement Error: input into what?")
             end
         elseif ast[1] == SET_STMT then
             if ast[2][1] == VARID_VAL then
                 name = ast[2][2]
-                body = ast[3]
-                state.v[name] = evalIntExpr(body)
+                if isLvalue(ast[3]) then
+                    body = evalIntExpr(ast[3])
+                else
+                    body = boolToInt( evalBoolExpr(ast[3]))
+                end
+                
+                state.v[name] = body
             elseif ast[2][1] == ARRAY_REF then
                 name = ast[2][2][2]
                 body = ast[3]
@@ -360,7 +372,13 @@ function interpit.interp(ast, state, incall, outcall)
                 if(state.a[name] == nil) then
                     state.a[name]={}
                 end
-                state.a[name][evalIntExpr(ast[2][3])] = evalIntExpr(body) 
+
+                if isLvalue(ast[3]) then
+                    body = evalIntExpr(ast[3])
+                else
+                    body = boolToInt( evalBoolExpr(ast[3]))
+                end
+                state.a[name][evalIntExpr(ast[2][3])] = body 
             end
         elseif ast[1] == SUB_STMT then
             name = ast[2]
@@ -378,6 +396,7 @@ function interpit.interp(ast, state, incall, outcall)
             local passed = false
             local counter = 2
 
+            --if and elseif
             for i=2, #ast-1, 2 do
                 if evalBoolExpr(ast[i]) then
                     interp_stmt_list(ast[i+1])
@@ -386,12 +405,13 @@ function interpit.interp(ast, state, incall, outcall)
                 counter = i
             end
 
-            if not passed then
-                interp_stmt_list(ast[counter+2])
+            --else
+            if not passed and type(ast[counter+2]) == "table" then --could also say and ast[counter+2] ~= nil
+                interp_stmt_list(ast[counter+2])    --if there was no else then last ast doesn't exist
             end
 
         elseif ast[1] == WHILE_STMT then
-            while evalBoolExpr(ast[2]) do
+            while evalBoolExpr(ast[2])  do
                 interp_stmt_list(ast[3])
             end
         
@@ -401,6 +421,7 @@ function interpit.interp(ast, state, incall, outcall)
 
     -- Body of function interp
     interp_stmt_list(ast)
+
     return state
 end
 
