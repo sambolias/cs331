@@ -9,6 +9,15 @@
 -- For Assignment 6, Exercise B
 
 
+
+--TODO--
+
+--allow variables to hold bool values - wrong, all bools are 0 or 1
+--needs more testing and some refactoring
+--reread semantics because there's probably more
+--looks like i did booleans wrong
+
+
 -- *********************************************************************
 -- * To run a Kanchil program, use kanchil.lua (which uses this file). *
 -- *********************************************************************
@@ -116,6 +125,7 @@ function interpit.interp(ast, state, incall, outcall)
     local evalIntExpr
     local evalBoolExpr
     local getLvalue
+    local isLvalue
 
     function interp_stmt_list(ast)  -- Already declared local
         for i = 2, #ast do
@@ -131,10 +141,38 @@ function interpit.interp(ast, state, incall, outcall)
         elseif ast[1] == VARID_VAL then
             value = state.v[ast[2]]
         elseif ast[1] == ARRAY_REF then
-            value = state.a[ast[2]][evalIntExpr(ast[3])]
+            value = state.a[ast[2][2]][evalIntExpr(ast[3])]
         end
 
         return value
+    end
+
+    function isLvalue(ast)
+        
+        if ast[1] == NUMLIT_VAL or ast[1] == VARID_VAL
+            or ast[1] == ARRAY_REF then
+            return true
+        end
+
+        if ast[1][1] == UN_OP then
+            if ast[1][2] == "+" or
+                ast[1][2] == "-" then
+                return true
+            end
+        end
+
+        if ast[1][1] == BIN_OP then
+            if ast[1][2] == "+" or
+                ast[1][2] == "-" or
+                ast[1][2] == "*" or
+                ast[1][2] == "/" or
+                ast[1][2] == "%" then
+                return true
+            end
+        end
+
+        return false
+
     end
 
     function evalIntExpr(ast)
@@ -143,18 +181,16 @@ function interpit.interp(ast, state, incall, outcall)
         local value=nil
 
         local i = 1
-        --count up through binary operators
-        if #ast > 2 then    --needs to be at least 3 to have binary operation
-            while ast[i][1] == BIN_OP do
-             i=i+1
-            end
-        end
-
-        i=i-1   --this is kind of confusing
 
         if ast[1]==NUMLIT_VAL or ast[1] == VARID_VAL or ast[1] == ARRAY_REF then --num_lit, var_val, or array_ref
             value = getLvalue(ast)
-        else
+        else --arithmetic expression
+            --count up through binary operators
+            while ast[i][1] == BIN_OP do
+             i=i+1
+            end
+ 
+            i=i-1   --this is kind of confusing, puts i back to last bin_op
 
             --j counts up lvalues as i counts down bin_ops
             for j = i+1, #ast do
@@ -201,7 +237,83 @@ function interpit.interp(ast, state, incall, outcall)
     end
 
     function evalBoolExpr(ast)
-        
+
+        local value=nil
+        local boolValue = nil
+
+        local i = 1
+
+        if ast[1]==BOOLLIT_VAL then
+            if ast[2] == "false" then
+                boolValue = false
+            else
+                boolValue = true
+            end
+        else --conditional expression
+            --count up through binary operators
+            while ast[i][1] == BIN_OP do
+             i=i+1
+            end
+ 
+            i=i-1   --this is kind of confusing, puts i back to last bin_op
+
+            --j counts up conditional statements as i counts down bin_ops
+            for j = i+1, #ast do
+               
+                local tempValue
+            
+                if ast[j][1] == UN_OP then
+
+                    
+                    if ast[j][2] == "!" then
+
+                        j=j+1   --increment cond counter to get cond for un_op
+
+                       boolValue = not evalBoolExpr(ast[j])
+                    end
+
+                end
+
+                --this all needs cleaned up...
+                if i > 0 then
+                    if ast[j][1] == BOOLLIT_VAL then
+                        if boolValue == nil then
+                            boolValue = evalBoolExpr(ast[j])
+                        elseif ast[i][2] == "&&" then
+                            i=i-1
+                            boolValue = boolValue and evalBoolExpr(ast[j])
+                        elseif ast[i][2] == "||" then
+                            i=i-1
+                            boolValue = boolValue or evalBoolExpr(ast[j])
+                        end
+                    elseif isLvalue(ast[j]) then
+                        if value == nil then
+                            value = evalIntExpr(ast[j])
+                        else
+                            tempValue = evalIntExpr(ast[j])
+                            if ast[i][2] == "==" then
+                                boolValue = value == tempValue                    
+                            elseif ast[i][2] == ">=" then
+                                boolValue = value >= tempValue
+                            elseif ast[i][2] == "<=" then
+                                boolValue = value <= tempValue
+                            elseif ast[i][2] == ">" then
+                                boolValue = value > tempValue
+                            elseif ast[i][2] == "<" then
+                                boolValue = value < tempValue
+                            elseif ast[i][2] == "!=" then
+                                boolValue = value ~= tempValue
+                            end
+                            value = tempValue
+                            i=i-1   --decrement bin_op counter
+                        end
+                    end
+                end
+            end
+        end
+
+
+        return boolValue
     end
 
     function interp_stmt(ast)
@@ -213,8 +325,12 @@ function interpit.interp(ast, state, incall, outcall)
             if ast[2][1] == STRLIT_VAL then
                 str = ast[2][2]
                 outcall(str:sub(2,str:len()-1))
-            else
+            elseif isLvalue(ast[2]) then 
                 outcall(numToStr(evalIntExpr(ast[2])))
+            elseif evalBoolExpr(ast[2]) then
+                outcall("true")
+            else
+                outcall("false")
             end
         elseif ast[1] == INPUT_STMT then
             if ast[2][1] == VARID_VAL then
@@ -222,7 +338,13 @@ function interpit.interp(ast, state, incall, outcall)
                 body = incall()
                 state.v[name] = strToNum(body)  --variables must hold integer
             elseif ast[2][1] == ARRAY_REF then
-                print("No support for arrays yet")
+                name = ast[2][2][2]
+                body = incall()
+                 --add new table for array
+                if(state.a[name] == nil) then
+                    state.a[name]={}
+                end
+                state.a[name][evalIntExpr(ast[2][3])] = strToNum(body)
             else
                 print("input into what?")
             end
@@ -234,10 +356,11 @@ function interpit.interp(ast, state, incall, outcall)
             elseif ast[2][1] == ARRAY_REF then
                 name = ast[2][2][2]
                 body = ast[3]
-                 print ( numToStr( evalIntExpr(ast[3])))
-                 print ( numToStr( evalIntExpr(ast[2][3])))
-                 print (ast[2][2][2])
-                state.a[name][evalIntExpr(ast[2][3])] = evalIntExpr(body) --this doesn't work...need to add as key/value pair??
+                --add new table for array
+                if(state.a[name] == nil) then
+                    state.a[name]={}
+                end
+                state.a[name][evalIntExpr(ast[2][3])] = evalIntExpr(body) 
             end
         elseif ast[1] == SUB_STMT then
             name = ast[2]
@@ -251,9 +374,27 @@ function interpit.interp(ast, state, incall, outcall)
             end
             interp_stmt_list(body)
         elseif ast[1] == IF_STMT then
-            print("If stmt; DUNNO WHAT TO DO!!!")
+
+            local passed = false
+            local counter = 2
+
+            for i=2, #ast-1, 2 do
+                if evalBoolExpr(ast[i]) then
+                    interp_stmt_list(ast[i+1])
+                    passed = true
+                end
+                counter = i
+            end
+
+            if not passed then
+                interp_stmt_list(ast[counter+2])
+            end
+
         elseif ast[1] == WHILE_STMT then
-            print("While stmt; DUNNO WHAT TO DO!!!")
+            while evalBoolExpr(ast[2]) do
+                interp_stmt_list(ast[3])
+            end
+        
         else
         end
     end
