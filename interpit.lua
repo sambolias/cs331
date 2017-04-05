@@ -12,10 +12,8 @@
 
 --TODO--
 
---allow variables to hold bool values - wrong, all bools are 0 or 1
---needs more testing and some refactoring
---reread semantics because there's probably more
---looks like i did booleans wrong
+--clean code
+--comment and header
 
 
 -- *********************************************************************
@@ -141,7 +139,11 @@ function interpit.interp(ast, state, incall, outcall)
         elseif ast[1] == VARID_VAL then
             value = state.v[ast[2]]
         elseif ast[1] == ARRAY_REF then
-            value = state.a[ast[2][2]][evalIntExpr(ast[3])]
+            if state.a[ast[2][2]] ~= nil then
+                value = state.a[ast[2][2]][evalIntExpr(ast[3])]
+            else 
+                value = 0
+            end
         end
 
         return value
@@ -208,9 +210,26 @@ function interpit.interp(ast, state, incall, outcall)
 
                     j=j+1   --increment lvalue counter to get lvalue for un_op
 
-                    tempValue = sign * getLvalue(ast[j])
+                    if isLvalue(ast[j]) then
+                        if type(ast[j][1])=="table" then
+                            tempValue = sign * evalIntExpr(ast[j])
+                        else
+                            tempValue = sign * getLvalue(ast[j])
+                        end
+                    else
+                        tempValue = sign * boolToInt(evalBoolExpr(ast[j]))
+                    end
                 else 
-                    tempValue = getLvalue(ast[j])
+                    if isLvalue(ast[j]) then
+    
+                       if type(ast[j][1])=="table" then
+                            tempValue = evalIntExpr(ast[j])
+                        else
+                            tempValue = getLvalue(ast[j])
+                        end
+                    else
+                        tempValue = boolToInt(evalBoolExpr(ast[j]))
+                    end
                 end
 
                 if value == nil then
@@ -219,9 +238,23 @@ function interpit.interp(ast, state, incall, outcall)
                     if ast[i][2] == '*' then
                         value = value * tempValue
                     elseif ast[i][2] == '/' then
-                        value = value / tempValue
+                        if tempValue == 0 then  --div by 0 guard
+                            value = 0
+                        else
+                            --this is ugly, didn't see round or truncate function
+                            local s = value/tempValue / math.abs(value/tempValue) --holds the sign
+                            if s > 0 then
+                                value = math.floor(value / tempValue)
+                            else
+                                value = math.ceil(value / tempValue)
+                            end
+                        end
                     elseif ast[i][2] == '%' then
-                        value = value % tempValue    
+                         if tempValue == 0 then  --div by 0 guard
+                            value = 0
+                        else
+                            value = value % tempValue    
+                        end
                     elseif ast[i][2] == '+' then 
                         value = value + tempValue  
                     elseif ast[i][2] == '-' then
@@ -233,6 +266,9 @@ function interpit.interp(ast, state, incall, outcall)
             end
         end
 
+        if value == nil then
+            value = 0
+        end
 
         return value
     end
@@ -283,7 +319,8 @@ function interpit.interp(ast, state, incall, outcall)
 
                 --this all needs cleaned up...
                 if i > 0 then
-                    if ast[j][1] == BOOLLIT_VAL then
+
+                    if ast[i][2] == "&&" or ast[i][2] == "||" then
                         if boolValue == nil then
                             boolValue = evalBoolExpr(ast[j])
                         elseif ast[i][2] == "&&" then
@@ -333,17 +370,20 @@ function interpit.interp(ast, state, incall, outcall)
                 str = ast[2][2]
                 outcall(str:sub(2,str:len()-1))
             elseif isLvalue(ast[2]) then 
-                outcall(numToStr(evalIntExpr(ast[2])))
+                body = evalIntExpr(ast[2])
+     
+                outcall(numToStr(body))
+
             elseif evalBoolExpr(ast[2]) then
-                outcall("true")
+                outcall("1")
             else
-                outcall("false")
+                outcall("0")
             end
         elseif ast[1] == INPUT_STMT then
             if ast[2][1] == VARID_VAL then
                 name = ast[2][2]
                 body = incall()
-                state.v[name] = strToNum(body)  --variables must hold integer
+                state.v[name] = strToNum(body)  
             elseif ast[2][1] == ARRAY_REF then
                 name = ast[2][2][2]
                 body = incall()
@@ -352,8 +392,7 @@ function interpit.interp(ast, state, incall, outcall)
                     state.a[name]={}
                 end
                 state.a[name][evalIntExpr(ast[2][3])] = strToNum(body)
-            else
-                print("Input Statement Error: input into what?")
+  
             end
         elseif ast[1] == SET_STMT then
             if ast[2][1] == VARID_VAL then
@@ -398,7 +437,7 @@ function interpit.interp(ast, state, incall, outcall)
 
             --if and elseif
             for i=2, #ast-1, 2 do
-                if evalBoolExpr(ast[i]) then
+                if evalBoolExpr(ast[i]) and not passed then
                     interp_stmt_list(ast[i+1])
                     passed = true
                 end
